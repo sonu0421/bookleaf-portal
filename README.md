@@ -1,197 +1,153 @@
-# 📚 BookLeaf — Author Support & Communication Portal
+# BookLeaf — Author Support & Communication Portal
 
-A full-stack support portal for BookLeaf Publishing with **AI-assisted ticket classification, priority scoring, and response drafting**.
+Support portal for BookLeaf Publishing. Authors can view their books with royalty figures, raise support tickets, and chat with the support team in real time. Admins get a ticket queue with AI-assisted classification, priority scoring, and draft replies.
 
-**Live Demo:** _(URL after deployment)_
-**Tech Stack:** React (Vite) · Node.js (Express) · MongoDB (Mongoose) · Socket.io · Groq (Llama 3.3 70B)
+**Live Demo:** (URL here after deployment)
+**Stack:** React (Vite), Node.js (Express), MongoDB (Mongoose), Socket.io, Groq API
 
----
+## Test Login
 
-## Test Credentials (seeded)
+Seed data includes 1 admin and 10 authors:
 
-| Role   | Email                    | Password    |
-|--------|--------------------------|-------------|
-| Admin  | admin@bookleaf.com       | admin123    |
-| Author | priya.sharma@email.com   | password123 |
-| Author | rohit.kapoor@email.com   | password123 |
-| …      | (all 10 sample authors)  | password123 |
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@bookleaf.com | admin123 |
+| Author | priya.sharma@email.com | password123 |
 
----
+All 10 sample authors use `password123`.
 
-## Quick Start (Local)
+## Run Locally
 
-**Prerequisites:** Node.js 18+, MongoDB (local or Atlas)
+Need Node.js 18+ and MongoDB (local or Atlas).
 
 ```bash
-# 1. Backend
+# Backend
 cd server
-cp .env.example .env        # fill in MONGO_URI, JWT_SECRET, GROQ_API_KEY
+cp .env.example .env    # set MONGO_URI, JWT_SECRET, GROQ_API_KEY
 npm install
-npm run seed                # loads 10 authors + 18 books + admin user
-npm run dev                 # → http://localhost:5000
+npm run seed            # loads authors, books, admin user
+npm run dev             # http://localhost:5000
 
-# 2. Frontend (new terminal)
+# Frontend (separate terminal)
 cd client
 npm install
-npm run dev                 # → http://localhost:5173 (proxies /api → :5000)
+npm run dev             # http://localhost:5173
 ```
 
----
+## How It's Built
 
-## Architecture
+React frontend talks to an Express REST API (JWT auth, role-based access). Socket.io handles real-time ticket messages. When an author submits a ticket, the backend saves it immediately and then calls Groq in the background to classify it, score priority, and draft a reply. If the AI call fails, a keyword-based fallback kicks in so tickets never break.
 
 ```
-┌─────────────┐      REST + JWT       ┌──────────────┐      ┌───────────┐
-│ React (Vite) │ ◄──────────────────► │ Express API  │ ───► │ MongoDB   │
-│ Author/Admin │      Socket.io       │  + RBAC      │      │ Mongoose  │
-│   portals    │ ◄──────────────────► │              │      └───────────┘
-└─────────────┘   real-time tickets   └──────┬───────┘
-                                            │ single LLM call
-                                            ▼
-                                     ┌──────────────┐
-                                     │ Groq API     │
-                                     │ Llama 3.3    │
-                                     └──────────────┘
+React (Vite)  <--REST + JWT / Socket.io-->  Express API  -->  MongoDB
+                                                      |
+                                                 (background)
+                                                      v
+                                                   Groq API
 ```
 
-### Why these choices
+### Design decisions
 
-| Decision | Reason |
-|----------|--------|
-| **Groq (Llama 3.3 70B)** | Free tier, ~10x faster than OpenAI for this workload, JSON mode support. `gpt-4o-mini` would be the paid alternative. |
-| **Single LLM call per ticket** | Classification + priority + draft share the same context (KB + ticket). 1 call ≈ 900 input + 400 output tokens vs 3× that for separate calls. |
-| **Keyword fallback classifier** | If Groq is down/rate-limited/misconfigured, tickets still get classified and drafted — ticket creation never fails because of AI. |
-| **Socket.io rooms** | `ticket-<id>` rooms for author+admin real-time sync; `admins` room for new-ticket alerts. JWT verified on handshake. |
-| **Fire-and-forget AI** | Ticket is created synchronously; AI analysis attaches async. Authors never wait on LLM latency. |
-| **MongoDB** | Document model fits tickets (embedded messages/notes) naturally; Mongoose validation at the schema layer. |
+- **Groq (Llama 3.3 70B):** free tier, fast, supports JSON mode. The AI code is isolated in `aiService.js` so swapping providers is easy.
+- **One LLM call per ticket** for category + priority + draft. They share the same context, so three separate calls would just triple the cost.
+- **Keyword fallback** if Groq is down, rate-limited, or has no key. Ticket creation never depends on AI being up.
+- **Fire-and-forget AI:** ticket saves first, AI attaches a few seconds later. Authors don't wait on LLM latency.
+- **Socket.io rooms:** per-ticket rooms for real-time messages, plus an `admins` room for new ticket alerts. JWT checked on handshake.
 
-### Data Models
+### Data models
 
-- **User** — name, email (unique), passwordHash (bcrypt), role (`author`|`admin`), profile fields
-- **Book** — author ref, title, ISBN, genre, status, MRP, copiesSold, royaltyEarned/Paid/Pending, printPartner, availableOn
-- **Ticket** — ticketNo (`BLF-0001`), author ref, book ref (nullable = General), subject, description, category, priority, status, assignedTo, `messages[]` (visible to author), `internalNotes[]` (admin-only), `aiDraft`, `aiMeta` (model, tokens, fallback flag)
-
----
+- **User** — name, email (unique), password hash (bcrypt), role (author/admin)
+- **Book** — author ref, title, ISBN, genre, status, MRP, copies sold, royalty earned/paid/pending
+- **Ticket** — ticket number (BLF-0001), author ref, book ref (optional), subject, description, category, priority, status, assignee, messages array (author-visible), internal notes array (admin-only), AI draft, AI metadata
 
 ## AI Integration
 
-### How it works
+### Flow
 
-1. Author submits ticket → saved immediately with defaults (`General Inquiry` / `Medium`)
-2. Background job calls Groq with:
-   - **System prompt** = compact Knowledge Base (~600 tokens) + tone guidelines + strict JSON schema
-   - **User message** = author name + book context (royalty figures, status) + subject + description
-   - `temperature: 0.3` (consistent classification), `max_tokens: 600` (cost cap), `response_format: json_object`
-3. Response parsed → category/priority validated against enums (never trust raw LLM output) → draft stored
-4. Admin opens ticket → sees draft → **edits** → sends. Draft regenerates only on explicit request.
+1. Author submits ticket. Saved immediately with default category/priority.
+2. Background job sends to Groq:
+   - System prompt = short knowledge base (~600 tokens) + tone rules + JSON schema
+   - User message = author name + book context (royalty numbers, status) + subject + description
+   - `temperature: 0.3`, `max_tokens: 600`, JSON mode
+3. Response is validated against allowed categories/priorities (LLM output is never trusted raw), then saved.
+4. Admin opens the ticket, sees the draft, edits it, sends. Drafts only regenerate when the admin clicks the button.
 
-### Prompt strategy
+Prompt and KB code: `server/src/services/aiService.js` and `knowledgeBase.js`.
 
-- KB is distilled to operational facts only — no fluff, to keep input tokens low
-- Book context (actual royalty numbers, payout dates) is injected so drafts are **specific**, not generic
-- Tone rules embedded: acknowledge first, own mistakes, 48-hour timelines, clear next step
-- See `server/src/services/aiService.js` (`SYSTEM_PROMPT`) and `knowledgeBase.js`
+### When things fail
 
-### Error handling
+- No API key configured: keyword fallback runs right away
+- Timeout / 429 / 5xx: caught, fallback used, ticket keeps working
+- Bad JSON from LLM: stripped and retried, then fallback
+- Invalid category/priority value: replaced with safe defaults
 
-| Failure | Behaviour |
-|---------|-----------|
-| No API key | Keyword fallback immediately (documented, not an error) |
-| Timeout / 429 / 5xx | Catch → keyword fallback + template draft; ticket keeps working |
-| Malformed JSON | `safeParseJson` strips fences; on failure → fallback |
-| Invalid enum value | Validated against allow-lists; defaults to `General Inquiry`/`Medium` |
+### Cost
 
-### Cost awareness
+- 1 LLM call per ticket (not 3)
+- Drafts regenerate only on admin click, not on page load
+- Token usage logged per ticket (`aiMeta`) so you can audit cost in the admin UI
+- Roughly 1,300 tokens per ticket, effectively free on Groq's free tier
 
-- **1 LLM call per ticket** (not 3) — shared context
-- Drafts regenerate **only** on admin click, never on page view
-- `max_tokens: 600` caps output; KB kept to ~600 tokens input
-- Every ticket logs `aiMeta.promptTokens/completionTokens` — visible in admin UI for cost auditing
-- Estimated: ~1,300 tokens/ticket ≈ **$0.0002** on Groq free tier (effectively $0)
+### Key security
 
-### API key security
+The Groq key lives only in the server `.env` file. It's gitignored, never sent to the frontend, never hardcoded.
 
-- Key lives **only** in server `.env` (`GROQ_API_KEY`), never in code, never sent to frontend
-- `.env` is gitignored; `.env.example` documents required vars without values
+## API
 
----
+Base: `/api`. Everything except `POST /auth/login` needs `Authorization: Bearer <token>`.
 
-## API Documentation
+**Auth**
+- `POST /auth/login` — {email, password}, rate-limited
+- `GET /auth/me` — current user
 
-Base URL: `/api`. All routes except `POST /auth/login` require `Authorization: Bearer <JWT>`.
+**Books**
+- `GET /books` — author gets own books; admin can pass `?authorId=`
+- `GET /books/:id`
 
-### Auth
-| Method | Endpoint | Body | Notes |
-|--------|----------|------|-------|
-| POST | `/auth/login` | `{email, password}` | Rate-limited 20/15min per IP → `{token, user}` |
-| GET | `/auth/me` | — | Current user |
+**Tickets**
+- `GET /tickets?status=&category=&priority=&search=` — authors see own, admins see all
+- `GET /tickets/:id` — internal notes stripped for authors
+- `POST /tickets` — {bookId?, subject, description}, author only
+- `POST /tickets/:id/messages` — {text}, author or admin reply
 
-### Books
-| Method | Endpoint | Notes |
-|--------|----------|-------|
-| GET | `/books` | Author: own books. Admin: `?authorId=` for any author |
-| GET | `/books/:id` | Ownership enforced |
+**Admin**
+- `PATCH /admin/tickets/:id` — {status?, category?, priority?, assignedTo?}
+- `POST /admin/tickets/:id/notes` — {text}, internal only
+- `POST /admin/tickets/:id/regenerate-draft`
+- `GET /admin/stats` — counts, oldest unresolved tickets
 
-### Tickets
-| Method | Endpoint | Body | Notes |
-|--------|----------|------|-------|
-| GET | `/tickets` | `?status=&category=&priority=&search=` | Authors see own; admins see all + filters |
-| GET | `/tickets/:id` | — | `internalNotes` + `aiMeta` stripped for authors |
-| POST | `/tickets` | `{bookId?, subject, description}` | Author only. AI analysis runs async |
-| POST | `/tickets/:id/messages` | `{text}` | Author or admin reply; real-time broadcast |
+**Socket.io events** (JWT in handshake)
+- `ticket:join` / `ticket:leave` — client to server
+- `ticket:message`, `ticket:updated` — server to room
+- `ticket:created` — server to admins room
 
-### Admin
-| Method | Endpoint | Body | Notes |
-|--------|----------|------|-------|
-| PATCH | `/admin/tickets/:id` | `{status?, category?, priority?, assignedTo?}` | Category/priority edits set `*Overridden=true` |
-| POST | `/admin/tickets/:id/notes` | `{text}` | Internal note (author never sees) |
-| POST | `/admin/tickets/:id/regenerate-draft` | — | Fresh AI draft on demand |
-| GET | `/admin/stats` | — | Totals, by-status, by-priority, 5 oldest unresolved |
+Errors return `{ "error": "message" }` with standard status codes (400/401/403/404).
 
-### Error format
-```json
-{ "error": "Human-readable message", "details": ["field-specific…"] }
-```
-- `400` validation, `401` auth, `403` RBAC, `404` not found, `409` duplicate — never bare 500s for client errors.
+## Limitations
 
-### Real-time events (Socket.io, JWT in handshake)
-| Event | Direction | Payload |
-|-------|-----------|---------|
-| `ticket:join` / `ticket:leave` | client → server | ticketId |
-| `ticket:message` | server → room | `{ticketId, message}` |
-| `ticket:updated` | server → room | `{ticketId}` |
-| `ticket:created` | server → `admins` room | `{ticketId, ticketNo}` |
+- No file attachments on tickets (was marked bonus in the brief)
+- Ticket list capped at 100, no pagination yet
+- Single admin role, no team-level permissions
+- No email notifications, in-app only for now
+- No audit log of who changed what on a ticket
 
----
-
-## Known Limitations & Future Work
-
-1. **File attachments** are UI-only (per assignment: bonus, not required). Production: S3/Cloudinary + virus scan.
-2. **No pagination** on ticket lists (capped at 100). Production: cursor pagination.
-3. **Single admin role** — no team/role granularity (support lead vs agent).
-4. **AI re-classification** doesn't re-run when the author edits a ticket (tickets are immutable after creation by design).
-5. **Email notifications** not implemented — Socket.io covers in-app; production would add SES/SendGrid for offline authors.
-6. **No audit log** of who changed status/category — would add an `activityLog[]` in production.
-
----
-
-## Project Structure
+## Structure
 
 ```
 server/src/
-  index.js            — Express + Socket.io bootstrap
-  config/             — env validation, DB connect
-  models/             — User, Book, Ticket (Mongoose schemas)
-  middleware/         — JWT auth, RBAC, central error handler
-  routes/             — auth, books, tickets, admin
+  index.js          — Express + Socket.io setup
+  config/           — env, db connection
+  models/           — User, Book, Ticket
+  middleware/       — auth, RBAC, error handler
+  routes/           — auth, books, tickets, admin
   services/
-    aiService.js          — Groq: 1-call classify+priority+draft
-    knowledgeBase.js      — compact KB (~600 tokens)
-    fallbackClassifier.js — keyword classifier (AI-down mode)
-  seed/seed.js        — loads sample dataset
+    aiService.js          — Groq integration
+    knowledgeBase.js      — support KB for prompts
+    fallbackClassifier.js — keyword fallback
+  seed/seed.js      — sample data loader
 
 client/src/
-  pages/author/       — My Books, My Tickets, New Ticket, Ticket Detail
-  pages/admin/        — Dashboard, Queue (filters), Ticket Detail (AI draft editor)
-  services/api.js     — axios + Socket.io client
+  pages/author/     — Books, Tickets, New Ticket, Ticket Detail
+  pages/admin/      — Dashboard, Queue, Ticket Detail
+  services/api.js   — axios + socket client
 ```

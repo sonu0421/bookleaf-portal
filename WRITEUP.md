@@ -1,22 +1,25 @@
 # Approach Note — BookLeaf Author Support Portal
 
-## What I prioritised
+## What I focused on
 
-**The AI pipeline first, UI second.** The assignment weights AI integration at 25% — the single largest criterion — so I designed the LLM layer before writing any frontend code. The key decision: **one LLM call per ticket** that returns classification + priority + draft together, instead of three separate calls. They share identical context (knowledge base + ticket), so splitting them would triple cost and latency for zero quality gain.
+I started with the AI layer since it's worth 25% of the evaluation, the most of any single criterion. The main call I made early: one LLM call per ticket that returns the category, priority, and draft reply together. All three need the same context (knowledge base + ticket details), so making three separate calls would have tripled the cost and latency for no real benefit.
 
-**Correctness over cleverness in the API.** Strict RBAC (authors physically cannot read other authors' tickets — enforced in query filters, not just hidden in UI), meaningful validation errors, and internal notes stripped at the serialisation layer so a frontend bug can never leak them.
+For the API, I kept it strict on access control. Authors can only see their own tickets, enforced in the database queries themselves, not just hidden in the UI. Internal notes are stripped out before sending data to authors, so even a frontend bug can't leak them.
 
-## Trade-offs I made
+## Trade-offs
 
-1. **Groq (Llama 3.3 70B) over OpenAI.** Free tier, very low latency, JSON mode. The trade-off is vendor dependence on a younger provider; the AI service is isolated in one module (`aiService.js`) so swapping to `gpt-4o-mini` is a config change, not a rewrite.
-2. **Fire-and-forget AI analysis.** Tickets save synchronously; classification attaches seconds later. Authors never stare at an LLM spinner, but admins may briefly see "General Inquiry / Medium" on a brand-new ticket. I judged responsiveness worth it.
-3. **Keyword fallback instead of queue-and-retry.** If the LLM is down, the system degrades to a deterministic classifier immediately rather than queueing for retry. Support can't stop because an API is having a bad hour — but the fallback is visibly badged in the admin UI so nobody mistakes it for an AI draft.
-4. **Functional UI, not pixel-perfect.** Per the brief's explicit guidance, I invested in the ticket workflow (filters, overrides, draft editing, real-time) over visual polish.
+**Groq over OpenAI.** I used Groq's free tier (Llama 3.3 70B) because it's fast and has JSON mode. The downside is relying on a smaller provider, so I kept all the AI logic in one file (`aiService.js`). Switching to something like `gpt-4o-mini` later would just be a config change.
 
-## How I'd evolve this to production
+**AI runs in the background.** The ticket gets saved first, and classification happens a few seconds later. This means authors never wait for the LLM, but an admin might briefly see a new ticket with default category/priority before the AI result comes in. I thought the responsiveness was worth it.
 
-- **Retrieval over stuffing:** as the KB grows, replace the static prompt with RAG (embed KB articles, retrieve top-3 per ticket) to hold token costs flat.
-- **Human-in-the-loop learning:** log every admin override of category/priority; use that as labelled data to fine-tune or few-shot-calibrate the classifier monthly.
-- **Confidence gating:** below a confidence threshold, route to a human first instead of showing a draft — bad auto-drafts erode trust faster than no drafts.
-- **Notifications:** email/SMS for offline authors; SLA timers with escalation when Critical tickets age past threshold.
-- **Audit & analytics:** immutable activity log per ticket; dashboard on resolution times and AI accuracy (override rate) to prove ROI to leadership.
+**Keyword fallback instead of retry queues.** If Groq is down, the system falls back to a simple keyword classifier right away instead of queueing for retry. Support tickets shouldn't stop working because an API is having a bad day. The admin UI shows a badge when the fallback was used, so it's clear the result didn't come from the AI.
+
+**Functional UI over polished UI.** The brief said not to over-invest in visual polish, so I put the effort into the ticket workflow: filters, category overrides, draft editing, and real-time updates.
+
+## If I were taking this to production
+
+- **RAG for the knowledge base.** Right now the KB is a static prompt. As it grows, I'd switch to embeddings and retrieve only the relevant articles per ticket to keep token costs flat.
+- **Learn from overrides.** Every time an admin corrects the AI's category or priority, that's labeled training data. I'd use it to improve the classifier over time.
+- **Confidence threshold.** If the model isn't confident, route to a human first instead of showing a weak draft. A bad auto-draft hurts trust more than no draft at all.
+- **Notifications.** Email/SMS for authors who aren't online, plus SLA timers that escalate when critical tickets sit too long.
+- **Audit log.** Track who changed status, category, and priority on each ticket, and add analytics on resolution times.
