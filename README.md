@@ -2,7 +2,7 @@
 
 Support portal for BookLeaf Publishing. Authors can view their books with royalty figures, raise support tickets, and chat with the support team in real time. Admins get a ticket queue with AI-assisted classification, priority scoring, and draft replies.
 
-**Live Demo:** (URL here after deployment)
+**Live Demo:** https://bookleaf-portal-one.vercel.app
 **Stack:** React (Vite), Node.js (Express), MongoDB (Mongoose), Socket.io, Groq API
 
 ## Test Login
