@@ -21,6 +21,21 @@ function ticketFilterFor(user, query) {
       { ticketNo: { $regex: query.search, $options: 'i' } },
     ];
   }
+  if (query.from || query.to) {
+    filter.createdAt = {};
+    if (query.from) {
+      const from = new Date(query.from);
+      if (!isNaN(from)) filter.createdAt.$gte = from;
+    }
+    if (query.to) {
+      const to = new Date(query.to);
+      if (!isNaN(to)) {
+        to.setHours(23, 59, 59, 999); // include the whole day
+        filter.createdAt.$lte = to;
+      }
+    }
+    if (Object.keys(filter.createdAt).length === 0) delete filter.createdAt;
+  }
   return filter;
 }
 

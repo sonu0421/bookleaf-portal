@@ -10,7 +10,7 @@ const PRIORITIES = ['', 'Critical', 'High', 'Medium', 'Low'];
 export default function AdminQueue() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ status: '', category: '', priority: '', search: '' });
+  const [filters, setFilters] = useState({ status: '', category: '', priority: '', search: '', from: '', to: '' });
 
   const load = () => {
     setLoading(true);
@@ -61,6 +61,18 @@ export default function AdminQueue() {
             value={filters.search}
             onChange={set('search')}
             style={{ minWidth: '200px' }}
+          />
+          <input
+            type="date"
+            value={filters.from}
+            onChange={set('from')}
+            title="From date"
+          />
+          <input
+            type="date"
+            value={filters.to}
+            onChange={set('to')}
+            title="To date"
           />
         </div>
 
