@@ -1,8 +1,10 @@
 import axios from 'axios';
 import { io } from 'socket.io-client';
 
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: `${API_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -28,7 +30,8 @@ let socket = null;
 export function getSocket() {
   if (socket) return socket;
   const token = localStorage.getItem('bookleaf_token');
-  socket = io({ auth: { token } });
+  const socketUrl = import.meta.env.VITE_SOCKET_URL || undefined;
+  socket = io(socketUrl, { auth: { token } });
   return socket;
 }
 export function closeSocket() {
