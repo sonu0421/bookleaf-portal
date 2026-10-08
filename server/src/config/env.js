@@ -12,7 +12,7 @@ export const env = {
   jwtSecret: required('JWT_SECRET'),
   clientUrl: required('CLIENT_URL', 'http://localhost:5173'),
   groqApiKey: required('GROQ_API_KEY'),
-  groqModel: required('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+  groqModel: required('GROQ_MODEL', 'openai/gpt-oss-120b'),
   nodeEnv: process.env.NODE_ENV || 'development',
 };
 
