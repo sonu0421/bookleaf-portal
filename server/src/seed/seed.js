@@ -18,7 +18,7 @@ import { Book } from '../models/Book.js';
 import { Ticket } from '../models/Ticket.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_PATH = '/home/hatch/workspace/user/files/bookleaf_sample_data__full_stack___2___1___1.json';
+const DATA_PATH = path.join(__dirname, 'sample-data.json');
 
 const AUTHOR_PASSWORD = 'password123';
 const ADMIN_EMAIL = 'admin@bookleaf.com';
