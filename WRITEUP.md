@@ -8,7 +8,7 @@ For the API, I kept it strict on access control. Authors can only see their own 
 
 ## Trade-offs
 
-**Groq over OpenAI.** I used Groq's free tier (Llama 3.3 70B) because it's fast and has JSON mode. The downside is relying on a smaller provider, so I kept all the AI logic in one file (`aiService.js`). Switching to something like `gpt-4o-mini` later would just be a config change.
+**Groq over OpenAI.** I used Groq's free tier (model set via `GROQ_MODEL` env var, default `openai/gpt-oss-120b`) because it's fast and has JSON mode. The downside is relying on a smaller provider, so I kept all the AI logic in one file (`aiService.js`). Switching models later is just a config change, no code change.
 
 **AI runs in the background.** The ticket gets saved first, and classification happens a few seconds later. This means authors never wait for the LLM, but an admin might briefly see a new ticket with default category/priority before the AI result comes in. I thought the responsiveness was worth it.
 
